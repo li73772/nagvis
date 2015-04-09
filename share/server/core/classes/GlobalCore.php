@@ -441,9 +441,25 @@ class GlobalCore {
     }
 
     public function getListMaps() {
+        global $_MAINCFG;
         $list = array();
+        $list_full = array();
         $maps = $this->getPermittedMaps();
-        foreach ($maps AS $mapName) {
+
+        // Get the cached list of maps and remove those which are not permitted
+        $cfgFiles = $this->getPermittedMaps();
+        $path = $this->getMainCfg()->getValue('paths', 'mapcfg');
+        foreach ($cfgFiles as $name) $cfgFiles[$name] = $path.$name.".cfg";
+
+        $cache = new GlobalFileCache($cfgFiles, cfg('paths','var').'maplist-global.cfg-'.CONST_VERSION.'-cache');
+
+        if(   $cache->isCached() !== -1
+           && $_MAINCFG->isCached() !== -1
+           && $cache->isCached() >= $_MAINCFG->isCached()) {
+            // Read the whole list from the cache
+            $list_full = $cache->getCache();
+        } else {
+            foreach ($this->getAvailableMaps() AS $mapName) {
             $MAPCFG = new GlobalMapCfg($mapName);
             $MAPCFG->checkMapConfigExists(true);
             try {
@@ -454,11 +470,22 @@ class GlobalCore {
                 continue; // skip e.g. not read config files
             }
             
-            if($MAPCFG->getValue(0, 'show_in_lists') == 1)
-                $list[$mapName] = $MAPCFG->getAlias();
+                if($MAPCFG->getValue(0, 'show_in_lists') == 1) {
+                    $list_full[$mapName] = $MAPCFG->getAlias();
+                }
         }
-        natcasesort($list);
-        return array_keys($list);
+	    natcasesort($list_full);
+
+            // Save the list as cache        
+            $cache->writeCache($list_full, 1);
+        }
+
+        foreach ($maps AS $mapName) {
+            // All elements which we do not have permission are removed
+            // Some elements are not in the cached list because the show_in_lists flag was set to 0 
+            if (isset($list_full[$mapName])) $list[$mapName] = $list_full[$mapName];
+        }
+        return array_keys($list_full);
     }
 
     /**
